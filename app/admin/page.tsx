@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { BillingDialog } from "@/components/admin/billing-dialog";
+import { BillingRulesDialog } from "@/components/admin/billing-rules-dialog";
 import { LiveFeed } from "@/components/admin/live-feed";
 import { StatTile } from "@/components/admin/stat-tile";
 import { UsersTable } from "@/components/admin/users-table";
-import { DEFAULT_RATE_KOBO, formatDuration } from "@/lib/billing";
+import { DEFAULT_AMOUNT_KOBO, PERIOD_LABEL, formatDuration } from "@/lib/billing";
 import { useRequireRole } from "@/lib/guards";
-import { formatNaira } from "@/lib/money";
-import type { AdminUser, Me } from "@/lib/types";
+import { formatMinuteOfDay, formatNaira } from "@/lib/money";
+import type { BillingSettings, Me } from "@/lib/types";
 import { useAdmin } from "@/lib/use-admin";
 import { useNow } from "@/lib/use-now";
 
@@ -19,15 +19,24 @@ export default function AdminPage() {
   return <Dashboard me={me} />;
 }
 
+function rulesSummary(s: BillingSettings) {
+  if (!s.enabled) return "Billing is off — nobody is being charged.";
+  const hours =
+    s.windowStart != null && s.windowEnd != null
+      ? `between ${formatMinuteOfDay(s.windowStart)} and ${formatMinuteOfDay(s.windowEnd)} (${s.timezone})`
+      : "at any time";
+  return `${formatNaira(s.amountKobo)} per ${PERIOD_LABEL[s.period]}, charged at the start of each ${PERIOD_LABEL[s.period]} while signed in, ${hours}.`;
+}
+
 function Dashboard({ me }: { me: Me }) {
-  const { users, feed, collectedKobo, loading, error, updateBilling } = useAdmin(me.id);
-  const [editing, setEditing] = useState<AdminUser | null>(null);
+  const { users, settings, feed, collectedKobo, loading, error, updateSettings } = useAdmin(me.id);
+  const [editing, setEditing] = useState(false);
   const now = useNow(1000);
 
+  const amountKobo = settings?.amountKobo ?? DEFAULT_AMOUNT_KOBO;
+  const enabled = settings?.enabled ?? true;
   const online = users.filter((u) => u.online).length;
-  const outOfFunds = users.filter(
-    (u) => (u.billingConfig?.enabled ?? true) && u.balanceKobo < (u.billingConfig?.rateKobo ?? DEFAULT_RATE_KOBO),
-  ).length;
+  const outOfFunds = enabled ? users.filter((u) => u.balanceKobo < amountKobo).length : 0;
   const totalHeld = users.reduce((sum, u) => sum + u.balanceKobo, 0);
   const nextRun = 60 - new Date(now).getSeconds();
 
@@ -36,10 +45,11 @@ function Dashboard({ me }: { me: Me }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Live dashboard</h1>
-          <p className="text-sm text-muted">Online customers, incoming debits and per-customer billing.</p>
+          <p className="text-sm text-muted">Online customers, incoming debits and billing rules.</p>
         </div>
         <p className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
-          Next billing run in <span className="tabular font-mono font-semibold text-foreground">{formatDuration(nextRun)}</span>
+          Next billing run in{" "}
+          <span className="tabular font-mono font-semibold text-foreground">{formatDuration(nextRun)}</span>
         </p>
       </div>
 
@@ -49,14 +59,42 @@ function Dashboard({ me }: { me: Me }) {
         </p>
       )}
 
-      <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <section
+        aria-labelledby="rules"
+        className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-5"
+      >
+        <div className="min-w-0">
+          <h2 id="rules" className="text-xs font-medium uppercase tracking-wider text-muted">
+            Billing rules · all customers
+          </h2>
+          <p className="mt-1 text-lg font-semibold">
+            {settings ? (
+              <>
+                {enabled ? `${formatNaira(settings.amountKobo)} per ${PERIOD_LABEL[settings.period]}` : "Billing off"}
+              </>
+            ) : (
+              "Loading…"
+            )}
+          </p>
+          {settings && <p className="mt-1 text-sm text-muted">{rulesSummary(settings)}</p>}
+        </div>
+        <button
+          onClick={() => setEditing(true)}
+          disabled={!settings}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg transition hover:opacity-90 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Edit billing rules
+        </button>
+      </section>
+
+      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Online now" value={String(online)} hint={`of ${users.length} customers`} tone="accent" />
         <StatTile label="Collected live" value={formatNaira(collectedKobo)} hint="since you opened this page" />
         <StatTile label="Held in wallets" value={formatNaira(totalHeld)} hint="across all customers" />
         <StatTile
           label="Out of funds"
           value={String(outOfFunds)}
-          hint="can’t cover next minute"
+          hint="can’t cover the next charge"
           tone={outOfFunds ? "danger" : "default"}
         />
       </div>
@@ -73,7 +111,7 @@ function Dashboard({ me }: { me: Me }) {
               ))}
             </div>
           ) : (
-            <UsersTable users={users} onEdit={setEditing} />
+            <UsersTable users={users} amountKobo={amountKobo} billingEnabled={enabled} />
           )}
         </section>
 
@@ -85,7 +123,12 @@ function Dashboard({ me }: { me: Me }) {
         </section>
       </div>
 
-      <BillingDialog user={editing} onClose={() => setEditing(null)} onSave={updateBilling} />
+      <BillingRulesDialog
+        open={editing}
+        settings={settings}
+        onClose={() => setEditing(false)}
+        onSave={updateSettings}
+      />
     </AppShell>
   );
 }

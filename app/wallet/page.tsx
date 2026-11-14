@@ -4,9 +4,11 @@ import { AppShell } from "@/components/app-shell";
 import { Ledger } from "@/components/ledger";
 import { MeterCard } from "@/components/meter-card";
 import { TopupPanel } from "@/components/topup-panel";
+import { PERIOD_LABEL, PERIOD_MS } from "@/lib/billing";
 import { useRequireRole } from "@/lib/guards";
 import type { Me } from "@/lib/types";
 import { useWallet } from "@/lib/use-wallet";
+import { useNow } from "@/lib/use-now";
 
 export default function WalletPage() {
   const me = useRequireRole("USER");
@@ -16,7 +18,13 @@ export default function WalletPage() {
 
 function WalletView({ me }: { me: Me }) {
   const w = useWallet(me);
-  const locked = w.billingEnabled && w.balanceKobo < w.rateKobo;
+  const now = useNow(5000);
+  const { settings } = w;
+  const paidUp =
+    settings.period !== "MINUTE" &&
+    w.lastDebitAt != null &&
+    now < w.lastDebitAt + PERIOD_MS[settings.period];
+  const locked = settings.enabled && w.balanceKobo < settings.amountKobo && !paidUp;
 
   return (
     <AppShell>
@@ -25,11 +33,10 @@ function WalletView({ me }: { me: Me }) {
         <div className="space-y-6">
           <MeterCard
             balanceKobo={w.balanceKobo}
-            rateKobo={w.rateKobo}
-            config={w.config}
-            billingEnabled={w.billingEnabled}
+            settings={settings}
             online={w.online}
             connectedAt={w.connectedAt}
+            lastDebitAt={w.lastDebitAt}
             sessionChargedKobo={w.sessionChargedKobo}
           />
           <Ledger
@@ -40,7 +47,12 @@ function WalletView({ me }: { me: Me }) {
             freshId={w.freshId}
           />
         </div>
-        <TopupPanel userId={me.id} highlight={locked} />
+        <TopupPanel
+          userId={me.id}
+          highlight={locked}
+          amountKobo={settings.amountKobo}
+          periodLabel={PERIOD_LABEL[settings.period]}
+        />
       </div>
     </AppShell>
   );

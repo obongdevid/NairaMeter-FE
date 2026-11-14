@@ -5,8 +5,8 @@ import { api } from "./api";
 import { useSocket } from "./socket";
 import type {
   AdminUser,
-  BillingConfig,
   BillingPatch,
+  BillingSettings,
   FeedItem,
   TransactionType,
 } from "./types";
@@ -26,6 +26,7 @@ interface RecentTx {
 export function useAdmin(adminId: string) {
   const { socket, connectedAt } = useSocket();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [settings, setSettings] = useState<BillingSettings | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [collectedKobo, setCollectedKobo] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -41,11 +42,13 @@ export function useAdmin(adminId: string) {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
+      api<BillingSettings>("/admin/billing", { userId: adminId }),
       api<AdminUser[]>("/admin/users", { userId: adminId }),
       api<RecentTx[]>("/admin/transactions?limit=50", { userId: adminId }),
     ])
-      .then(([u, tx]) => {
+      .then(([s, u, tx]) => {
         if (cancelled) return;
+        setSettings(s);
         setUsers(u);
         setFeed(
           tx.map((t) => ({
@@ -117,33 +120,33 @@ export function useAdmin(adminId: string) {
       });
     };
 
-    const onConfig = (c: BillingConfig) => patchUser(c.userId, { billingConfig: c });
+    const onConfig = (c: BillingSettings) => setSettings(c);
 
     socket.on("presence:online", onOnline);
     socket.on("presence:offline", onOffline);
     socket.on("debit:created", onDebit);
     socket.on("topup:created", onTopup);
-    socket.on("billing:config-updated", onConfig);
+    socket.on("billing:config", onConfig);
     return () => {
       socket.off("presence:online", onOnline);
       socket.off("presence:offline", onOffline);
       socket.off("debit:created", onDebit);
       socket.off("topup:created", onTopup);
-      socket.off("billing:config-updated", onConfig);
+      socket.off("billing:config", onConfig);
     };
   }, [socket]);
 
-  const updateBilling = useCallback(
-    async (userId: string, patch: BillingPatch) => {
-      const updated = await api<BillingConfig>(`/admin/users/${userId}/billing`, {
+  const updateSettings = useCallback(
+    async (patch: BillingPatch) => {
+      const updated = await api<BillingSettings>("/admin/billing", {
         method: "PATCH",
         userId: adminId,
         body: patch,
       });
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, billingConfig: updated } : u)));
+      setSettings(updated);
     },
     [adminId],
   );
 
-  return { users, feed, collectedKobo, loading, error, updateBilling };
+  return { users, settings, feed, collectedKobo, loading, error, updateSettings };
 }

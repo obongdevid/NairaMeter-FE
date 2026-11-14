@@ -7,11 +7,13 @@ export interface DevUser {
   role: Role;
 }
 
-export interface BillingConfig {
-  id: string;
-  userId: string;
+export type BillingPeriod = "MINUTE" | "HOUR" | "DAY";
+
+/** Global billing rules set by admins; they apply to every customer. */
+export interface BillingSettings {
   enabled: boolean;
-  rateKobo: number;
+  amountKobo: number;
+  period: BillingPeriod;
   windowStart: number | null;
   windowEnd: number | null;
   timezone: string;
@@ -23,7 +25,7 @@ export interface Me {
   name: string;
   role: Role;
   balanceKobo: number;
-  billingConfig: BillingConfig | null;
+  billing: BillingSettings;
 }
 
 export type TransactionType = "TOPUP" | "DEBIT" | "ADJUSTMENT";
@@ -42,7 +44,6 @@ export interface AdminUser {
   name: string;
   email: string;
   balanceKobo: number;
-  billingConfig: BillingConfig | null;
   online: boolean;
 }
 
@@ -56,10 +57,4 @@ export interface FeedItem {
   at: string;
 }
 
-export interface BillingPatch {
-  enabled?: boolean;
-  rateKobo?: number;
-  windowStart?: number | null;
-  windowEnd?: number | null;
-  timezone?: string;
-}
+export type BillingPatch = Partial<BillingSettings>;

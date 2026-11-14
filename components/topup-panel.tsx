@@ -8,7 +8,17 @@ const PRESETS = [100, 500, 1000, 2000]; // naira
 const MIN_NAIRA = 50;
 const MAX_NAIRA = 1_000_000;
 
-export function TopupPanel({ userId, highlight }: { userId: string; highlight?: boolean }) {
+export function TopupPanel({
+  userId,
+  highlight,
+  amountKobo,
+  periodLabel,
+}: {
+  userId: string;
+  highlight?: boolean;
+  amountKobo: number;
+  periodLabel: string;
+}) {
   const [naira, setNaira] = useState<string>("500");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +90,7 @@ export function TopupPanel({ userId, highlight }: { userId: string; highlight?: 
         />
         <p id="amount-hint" className="mt-1 text-xs text-muted">
           {valid
-            ? `Buys about ${Math.floor(value)} minutes at ₦1/min.`
+            ? `Buys ${Math.floor((value * 100) / amountKobo)} ${periodLabel}(s) at ${formatNaira(amountKobo)}/${periodLabel}.`
             : `Minimum ₦${MIN_NAIRA}.`}
         </p>
 

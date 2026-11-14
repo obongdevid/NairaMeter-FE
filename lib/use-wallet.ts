@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import { DEFAULT_RATE_KOBO } from "./billing";
 import { useSocket } from "./socket";
-import type { BillingConfig, LedgerEntry, Me, TransactionType } from "./types";
+import type { BillingSettings, LedgerEntry, Me, TransactionType } from "./types";
 
 interface LiveUpdate {
   balanceKobo: number;
@@ -26,22 +25,26 @@ interface LedgerPage {
 export function useWallet(me: Me) {
   const { socket, status, connectedAt, handshakeBalanceKobo } = useSocket();
   const [balanceKobo, setBalanceKobo] = useState(me.balanceKobo);
-  const [config, setConfig] = useState<BillingConfig | null>(me.billingConfig);
+  const [settings, setSettings] = useState<BillingSettings>(me.billing);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(true);
   const [sessionChargedKobo, setSessionChargedKobo] = useState(0);
   const [freshId, setFreshId] = useState<string | null>(null);
 
-  // (Re)load the ledger on first mount and after every reconnect, so
-  // anything missed while offline shows up.
+  // (Re)load the ledger and billing rules on mount and after every reconnect,
+  // so anything missed while offline shows up.
   useEffect(() => {
     let cancelled = false;
-    api<LedgerPage>("/transactions?limit=30", { userId: me.id })
-      .then((page) => {
+    Promise.all([
+      api<LedgerPage>("/transactions?limit=30", { userId: me.id }),
+      api<Me>("/me", { userId: me.id }),
+    ])
+      .then(([page, fresh]) => {
         if (cancelled) return;
         setEntries(page.items);
         setNextCursor(page.nextCursor);
+        setSettings(fresh.billing);
       })
       .finally(() => !cancelled && setLedgerLoading(false));
     return () => {
@@ -69,13 +72,13 @@ export function useWallet(me: Me) {
               {
                 ...u.transaction,
                 type,
-                description: type === "TOPUP" ? "Wallet top-up" : "Per-minute usage",
+                description: type === "TOPUP" ? "Wallet top-up" : "Usage charge",
               },
               ...prev,
             ],
       );
     };
-    const onConfig = (c: BillingConfig) => setConfig(c);
+    const onConfig = (c: BillingSettings) => setSettings(c);
     socket.on("balance:update", onUpdate);
     socket.on("billing:config", onConfig);
     return () => {
@@ -94,14 +97,14 @@ export function useWallet(me: Me) {
     setNextCursor(page.nextCursor);
   }, [nextCursor, me.id]);
 
+  const lastDebit = entries.find((e) => e.type === "DEBIT");
+
   return {
     online: status === "online",
-    connecting: status === "connecting" || status === "offline",
     connectedAt,
     balanceKobo,
-    rateKobo: config?.rateKobo ?? DEFAULT_RATE_KOBO,
-    billingEnabled: config?.enabled ?? true,
-    config,
+    settings,
+    lastDebitAt: lastDebit ? new Date(lastDebit.createdAt).getTime() : null,
     sessionChargedKobo,
     entries,
     freshId,

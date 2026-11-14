@@ -1,21 +1,23 @@
 "use client";
 
 import {
+  PERIOD_LABEL,
+  PERIOD_MS,
   formatDuration,
   formatRunway,
   isWithinWindow,
+  nextChargeAt,
 } from "@/lib/billing";
 import { formatMinuteOfDay, formatNaira } from "@/lib/money";
-import type { BillingConfig } from "@/lib/types";
+import type { BillingSettings } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
 interface Props {
   balanceKobo: number;
-  rateKobo: number;
-  config: BillingConfig | null;
-  billingEnabled: boolean;
+  settings: BillingSettings;
   online: boolean;
   connectedAt: number | null;
+  lastDebitAt: number | null;
   sessionChargedKobo: number;
 }
 
@@ -29,37 +31,44 @@ const BADGE: Record<MeterState, { label: string; cls: string; dot: string }> = {
   offline: { label: "RECONNECTING", cls: "bg-warn-soft text-warn", dot: "bg-warn nm-pulse" },
 };
 
-export function MeterCard(p: Props) {
+export function MeterCard({ balanceKobo, settings, online, connectedAt, lastDebitAt, sessionChargedKobo }: Props) {
   const now = useNow(1000);
-  const date = new Date(now);
+  const { amountKobo, period } = settings;
+  const unit = PERIOD_LABEL[period];
 
-  const inWindow = isWithinWindow(date, p.config);
-  const canAfford = p.balanceKobo >= p.rateKobo;
-  const state: MeterState = !p.online
+  const inWindow = isWithinWindow(new Date(now), settings);
+  // Already paid up for the current period? Then a low balance isn't a problem yet.
+  const paidUp = period !== "MINUTE" && lastDebitAt != null && now < lastDebitAt + PERIOD_MS[period];
+  const canAfford = balanceKobo >= amountKobo;
+
+  const state: MeterState = !online
     ? "offline"
-    : !p.billingEnabled
+    : !settings.enabled
       ? "off"
       : !inWindow
         ? "outside"
-        : !canAfford
+        : !canAfford && !paidUp
           ? "locked"
           : "metering";
 
   const badge = BADGE[state];
   const metering = state === "metering";
 
-  // The backend bills at the top of every minute.
-  const nextDeduction = metering ? 60 - date.getSeconds() : null;
-  const signedIn = p.connectedAt ? (now - p.connectedAt) / 1000 : null;
-  const runwayMinutes = metering || state === "locked" ? Math.floor(p.balanceKobo / p.rateKobo) : null;
+  const nextDeduction = metering
+    ? (nextChargeAt(now, period, lastDebitAt) - now) / 1000
+    : null;
+  const signedIn = connectedAt ? (now - connectedAt) / 1000 : null;
+  const periodMinutes = PERIOD_MS[period] / 60_000;
+  const runwayMinutes =
+    metering || state === "locked" ? Math.floor(balanceKobo / amountKobo) * periodMinutes : null;
 
   const message: Record<MeterState, string | null> = {
     metering: null,
-    locked: "Your wallet can’t cover another minute. Top up to continue.",
-    off: "Billing is switched off for your account — you’re not being charged.",
+    locked: "Your wallet can’t cover the next charge. Top up to continue.",
+    off: "Billing is switched off right now — you’re not being charged.",
     outside:
-      p.config?.windowStart != null && p.config.windowEnd != null
-        ? `Billing runs ${formatMinuteOfDay(p.config.windowStart)}–${formatMinuteOfDay(p.config.windowEnd)}. You’re not being charged right now.`
+      settings.windowStart != null && settings.windowEnd != null
+        ? `Billing runs ${formatMinuteOfDay(settings.windowStart)}–${formatMinuteOfDay(settings.windowEnd)}. You’re not being charged right now.`
         : null,
     offline: "Reconnecting to the meter… you aren’t billed while disconnected.",
   };
@@ -87,10 +96,10 @@ export function MeterCard(p: Props) {
         }`}
         aria-live="polite"
       >
-        {formatNaira(p.balanceKobo)}
+        {formatNaira(balanceKobo)}
       </p>
       <p className="mt-1 text-sm text-muted">
-        {formatNaira(p.rateKobo)} per minute while you’re signed in
+        {formatNaira(amountKobo)} per {unit} while you’re signed in
       </p>
 
       {message[state] && (
@@ -111,11 +120,8 @@ export function MeterCard(p: Props) {
           strong
         />
         <Stat label="Signed in for" value={signedIn !== null ? formatDuration(signedIn) : "—"} />
-        <Stat label="Session charge" value={formatNaira(p.sessionChargedKobo)} />
-        <Stat
-          label="Runway"
-          value={runwayMinutes !== null ? formatRunway(runwayMinutes) : "—"}
-        />
+        <Stat label="Session charge" value={formatNaira(sessionChargedKobo)} />
+        <Stat label="Runway" value={runwayMinutes !== null ? formatRunway(runwayMinutes) : "—"} />
       </dl>
     </section>
   );
