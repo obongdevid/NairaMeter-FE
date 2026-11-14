@@ -89,7 +89,7 @@ export function useAdmin(adminId: string) {
       balanceAfterKobo: number;
       at: string;
     }) => {
-      patchUser(d.userId, { balanceKobo: d.balanceAfterKobo });
+      patchUser(d.userId, { balanceKobo: d.balanceAfterKobo, lastDebitAt: d.at });
       setCollectedKobo((c) => c + d.amountKobo);
       pushFeed({
         id: `debit-${d.userId}-${d.at}`,

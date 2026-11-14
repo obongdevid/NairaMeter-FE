@@ -6,7 +6,14 @@ import { BillingRulesDialog } from "@/components/admin/billing-rules-dialog";
 import { LiveFeed } from "@/components/admin/live-feed";
 import { StatTile } from "@/components/admin/stat-tile";
 import { UsersTable } from "@/components/admin/users-table";
-import { DEFAULT_AMOUNT_KOBO, PERIOD_LABEL, formatDuration } from "@/lib/billing";
+import {
+  DEFAULT_AMOUNT_KOBO,
+  PERIOD_LABEL,
+  PERIOD_MS,
+  formatDuration,
+  isWithinWindow,
+  nextChargeAt,
+} from "@/lib/billing";
 import { useRequireRole } from "@/lib/guards";
 import { formatMinuteOfDay, formatNaira } from "@/lib/money";
 import type { BillingSettings, Me } from "@/lib/types";
@@ -38,7 +45,18 @@ function Dashboard({ me }: { me: Me }) {
   const online = users.filter((u) => u.online).length;
   const outOfFunds = enabled ? users.filter((u) => u.balanceKobo < amountKobo).length : 0;
   const totalHeld = users.reduce((sum, u) => sum + u.balanceKobo, 0);
-  const nextRun = 60 - new Date(now).getSeconds();
+  // Soonest upcoming charge among online customers who will actually be billed.
+  let nextRun: number | null = null;
+  if (settings && settings.enabled && isWithinWindow(new Date(now), settings)) {
+    for (const u of users) {
+      if (!u.online) continue;
+      const last = u.lastDebitAt ? new Date(u.lastDebitAt).getTime() : null;
+      const paidUp = settings.period !== "MINUTE" && last != null && now < last + PERIOD_MS[settings.period];
+      if (u.balanceKobo < settings.amountKobo && !paidUp) continue;
+      const at = nextChargeAt(now, settings.period, last);
+      if (nextRun === null || at < nextRun) nextRun = at;
+    }
+  }
 
   return (
     <AppShell>
@@ -48,8 +66,10 @@ function Dashboard({ me }: { me: Me }) {
           <p className="text-sm text-muted">Online customers, incoming debits and billing rules.</p>
         </div>
         <p className="rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted">
-          Next billing run in{" "}
-          <span className="tabular font-mono font-semibold text-foreground">{formatDuration(nextRun)}</span>
+          Next charge{" "}
+          <span className="tabular font-mono font-semibold text-foreground">
+            {nextRun !== null ? `in ${formatDuration((nextRun - now) / 1000)}` : "— nobody due"}
+          </span>
         </p>
       </div>
 
@@ -111,7 +131,7 @@ function Dashboard({ me }: { me: Me }) {
               ))}
             </div>
           ) : (
-            <UsersTable users={users} amountKobo={amountKobo} billingEnabled={enabled} />
+            settings && <UsersTable users={users} settings={settings} />
           )}
         </section>
 

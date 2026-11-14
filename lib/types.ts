@@ -45,6 +45,8 @@ export interface AdminUser {
   email: string;
   balanceKobo: number;
   online: boolean;
+  /** ISO time of the customer's last debit, or null if never charged. */
+  lastDebitAt: string | null;
 }
 
 export interface FeedItem {
