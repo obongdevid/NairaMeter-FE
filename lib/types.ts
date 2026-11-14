@@ -36,3 +36,30 @@ export interface LedgerEntry {
   description?: string | null;
   createdAt: string;
 }
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  balanceKobo: number;
+  billingConfig: BillingConfig | null;
+  online: boolean;
+}
+
+export interface FeedItem {
+  id: string;
+  kind: TransactionType;
+  userId: string;
+  name: string;
+  amountKobo: number;
+  balanceAfterKobo: number;
+  at: string;
+}
+
+export interface BillingPatch {
+  enabled?: boolean;
+  rateKobo?: number;
+  windowStart?: number | null;
+  windowEnd?: number | null;
+  timezone?: string;
+}
